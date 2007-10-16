@@ -1,17 +1,38 @@
 #!/usr/bin/env ruby
 require 'eruby'
 require 'fcgi'
-require 'cgi'
 require 'logger'
 require 'benchmark'
 
+# Object additions
+class Object
+  def xml_safe; self.to_s.xml_safe; end
+  def uri_safe; self.to_s.uri_safe; end
+end
+
+# String additions
 class String
   def xml_safe
     self.gsub(/&/, "&#38;").gsub(/\"/, "&#34;").gsub(/</, "&#60;").gsub(/>/, "&#62;")
   end
+  def uri_safe
+    self.gsub(/[^a-zA-Z0-9_\-.]/n){ sprintf("%%%02X", $&.unpack("C")[0]) }
+  end
 end
 
-class ERProcess
+# Reponse object
+class Response
+  def initialize(request)
+    @headers = []
+    @out = request.out
+  end  
+  attr_reader :headers
+	attr_writer :headers
+  attr_reader :out
+end
+
+# Handles http transactions
+class FCGIHandler
   def initialize()
     $log = Logger.new(STDERR)
     $log.level = Logger::INFO
@@ -19,26 +40,37 @@ class ERProcess
   end
   
   def run()
-    _level_info = $log.level <= Logger::INFO
     start_time = Time.now
+    
+    # XXX debug/info stuff. Maybe remove in release...
+    _level_info = $log.level <= Logger::INFO
     request_count = 0.0
     rs_time = start_time
     
+    # The accept loop
     FCGI.each {|request|
+      # Keep some stats while in info/debug mode
       if _level_info then
-        rs_time = Time.now
+        $log.info { 'Accepted %s:%d %s' % [
+                    request.env['REMOTE_ADDR'], 
+                    request.env['REMOTE_PORT'], 
+                    request.env['REQUEST_URI']]
+                   }
         request_count += 1
-        #$log.debug { 'Accepted %s:%d %s' % [
-        #            request.env['REMOTE_ADDR'], 
-        #            request.env['REMOTE_PORT'], 
-        #            request.env['REQUEST_URI']]
-        #           }
+        rs_time = Time.now
       end
       
-      $stdout = request.out
+      # Setup a response object
+      response = Response.new request
       
-      print "Content-Type: text/html\r\n\r\n" # XXX
+      # Redirect stdout to fcgi output stream
+      $stdout = response.out
       
+      # Send headers
+      # XXX fix this
+      response.out.print response.headers.join("\r\n"), "\r\n\r\n"
+      
+      # Execute ERB
       filename = request.env['SCRIPT_FILENAME']
       file = open(filename)
       begin
@@ -49,9 +81,11 @@ class ERProcess
       ensure
         file.close
       end
-  
+      
+      # Finish request
       request.finish
       
+      # Some info/debug logging
       if _level_info then
         rs = Time.now.to_f-rs_time.to_f
         $log.info { 'perform: %.1f r/s, load: %.1f r/s, processed: %.0f r, uptime: %.1f s' % [
@@ -64,6 +98,7 @@ class ERProcess
     }
   end
   
+  # Handle internal error
   def on_error(request)
     print %q{<html>
   <head><title>500 - Internal Server Error</title></head>
@@ -80,5 +115,5 @@ class ERProcess
 end
 
 
-ERProcess.new.run
+FCGIHandler.new.run
 
