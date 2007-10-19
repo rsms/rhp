@@ -1,6 +1,9 @@
 <%
 
-response.headers.push 'Content-Type: text/plain; charset=utf-8'
+#buffer!
+headers['Content-Type'] = 'text/html; charset=utf-8'
+headers['Expires'] = Time.now.httpdate
+headers['X-mos'] = ['Hej', 'Moset']
 
 %><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
@@ -27,3 +30,8 @@ response.headers.push 'Content-Type: text/plain; charset=utf-8'
 % ERuby.import("foo.erb")
   </body>
 </html>
+<%
+#buffer!
+# Only meaningful when buffer! has been called and is active
+headers['X-mos'].push Time.now.httpdate
+%>
