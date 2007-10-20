@@ -54,6 +54,9 @@ class Response
     @out = request.out
   end
   
+  # Start buffering output instead of sending it directly.
+  # Decreases performance but may make things easier in some cases where 
+  # for example headers need to be modified after a few prints.
   def buffer!
     if not @buffered then
       if @has_sent_headers then
@@ -125,7 +128,7 @@ end
 class FCGIHandler
   def initialize()
     $log = Logger.new(STDERR)
-    $log.level = Logger::INFO
+    $log.level = Logger::WARN
     @compiler = ERuby::Compiler.new
   end
   
@@ -183,7 +186,7 @@ class FCGIHandler
         request_times.push rtime
         rs = 1.0/rtime
         uptime = Time.now.to_f-start_time.to_f
-        $log.info { 'perform: %.1f r/s, load: %.4f r/s, processed: %.0f r, uptime: %.1f s' % [
+        $log.info { 'perform: %.1f r/s, load: %.4f r, processed: %.0f r, uptime: %.1f s' % [
                     rs,
                     request_times.sum/uptime,
                     request_count,
