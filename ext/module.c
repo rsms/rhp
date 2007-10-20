@@ -1,9 +1,19 @@
-#include <ruby.h>
+#include "module.h"
 
-static VALUE mRHP;
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
 
+#include "rubyio.h" // OpenFile etc
 
-// String additions
+static VALUE RHP;
+static VALUE RHP_Compiler;
+static VALUE RHP_CompileError;
+
+// ------------------------------------------
+// String mixins
+
 #define STR_ASSOC   FL_USER3
 #define STR_NOCAPA  (ELTS_SHARED|STR_ASSOC)
 #define RESIZE_CAPA(str,capacity) do {\
@@ -111,16 +121,247 @@ static VALUE RString_xml_safe(VALUE self) {
   return dest;
 }
 
-// ---------------------
+// ------------------------------------------
+// Utilities
 
+const char* get_errno_msg() {
+  switch(errno) {
+    case 0: return "No error";
+    case EACCES: return "Another process has the file locked";
+    case EBADF: return "stream is not a valid stream opened for reading";
+    case EINTR: return "A signal interrupted the call";
+    case EIO: return "An input error occurred";
+    case EISDIR: return "The open object is a directory, not a file";
+    case ENOMEM: return "Memory could not be allocated for internal buffers";
+    case ENXIO: return "A device error occurred";
+    case EOVERFLOW:  return "The file is a regular file and an attempt was made "
+                            "to read at or beyond the offset maximum associated "
+                            "with the corresponding stream";
+    case EWOULDBLOCK:  return "The underlying file descriptor is a non-blocking "
+                              "socket and no data is ready to be read";
+  }
+  return "Unknown";
+}
 
+// ------------------------------------------
+// Compiler
 
-// ---------------------
+#define CTX_TEXT 1
+#define CTX_EVAL 2
+#define CTX_COMMENT 4
+#define CTX_PRINT 8
+
+#ifdef DEBUG
+#define log_parse(fmt, ...) fprintf(stdout, "%s %lu:%-2lu  " fmt "\n", filename, line, column, ##__VA_ARGS__)
+#else
+#define log_parse(fmt, ...)
+#endif
+
+void rhp_compiler_mark (rhp_compiler_t *s) {}
+static void rhp_compiler_free (rhp_compiler_t *s) {
+  log_debug("Enter rhp_compiler_free");
+  cstr_free(s->buf);
+  free(s->buf);
+}
+
+static VALUE RHP_Compiler_allocate (VALUE klass) {
+  log_debug("Enter RHP_Compiler_allocate");
+  VALUE obj;
+  rhp_compiler_t *compiler;
+  
+  obj = Data_Make_Struct(klass, rhp_compiler_t, rhp_compiler_mark, rhp_compiler_free, compiler);
+  compiler->buf = (cstr *)malloc(sizeof(cstr));
+  cstr_init(compiler->buf, 1024);
+  compiler->out = Qnil;
+  
+  log_debug("compiler->buf=%p : size=%ld length=%ld ptr=%p",
+    compiler->buf, compiler->buf->size, compiler->buf->length, compiler->buf->ptr);
+  
+  return obj;
+}
+
+static int _compile_push(rhp_compiler_t *compiler, const int context) {
+  int status = 0;
+  
+  if(context & CTX_EVAL) {
+    if(context & CTX_COMMENT) {
+      log_debug("Push: comment: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+      // discard
+    }
+    else if(context & CTX_PRINT) {
+      log_debug("Push: print: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+      cstr_appendc(compiler->buf, ')');
+      cstr_appendc(compiler->buf, ')');
+      cstr_appendc(compiler->buf, '\n');
+      compiler->out = rb_str_buf_cat(compiler->out, "@out.write((", 12);
+      compiler->out = rb_str_buf_cat(compiler->out, compiler->buf->ptr, compiler->buf->length);
+    }
+    else {
+      log_debug("Push: eval: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+      cstr_appendc(compiler->buf, '\n');
+      compiler->out = rb_str_buf_cat(compiler->out, compiler->buf->ptr, compiler->buf->length);
+    }
+  }
+  else {
+    log_debug("Push: text: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+    cstr_appendc(compiler->buf, '\'');
+    cstr_appendc(compiler->buf, ')');
+    cstr_appendc(compiler->buf, '\n');
+    compiler->out = rb_str_buf_cat(compiler->out, "@out.write('", 12);
+    compiler->out = rb_str_buf_cat(compiler->out, compiler->buf->ptr, compiler->buf->length);
+  }
+  
+  cstr_reset(compiler->buf);
+  return status;
+}
+
+static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
+  log_debug("Entered RHP_Compiler_compile_file");
+  rhp_compiler_t *compiler;
+  OpenFile *fptr;
+  FILE *f;
+  const char *filename;
+  int c;
+  int prev_c = -1;
+  int prev_prev_c = -1;
+  int context = CTX_TEXT;
+  int return_status = 0;
+  size_t line = 1;
+  size_t column = 0;
+  cstr *buf;
+  
+  // Parse arguments
+  log_debug("Parsing arguments");
+  Check_Type(file, T_FILE);
+  Data_Get_Struct(self, rhp_compiler_t, compiler);
+  
+  log_debug("compiler->buf = %p", compiler->buf);
+  log_debug("compiler->buf: size=%ld length=%ld ptr=%p",
+    compiler->buf->size, compiler->buf->length, compiler->buf->ptr);
+  
+  // Get FD
+  log_debug("Aquiring FD");
+  GetOpenFile(file, fptr);
+  rb_io_check_readable(fptr);
+  f = fptr->f;
+  filename = fptr->path;
+  
+  // Initialize output
+  log_debug("Initializing output");
+  compiler->out = rb_str_new("", 0);
+  log_debug("Resizing output");
+  RESIZE_CAPA(compiler->out, 4096);
+  log_debug("Referenceing buffer");
+  
+  log_debug("Entering read-loop");
+  while(++column) {
+    c  = fgetc(f); // We might want to wrap this in TRAP_BEG .. TRAP_END
+    log_debug("Mark");
+    // Handle EOF
+    if(c == EOF) {
+      log_debug("EOF @ column %lu, line %lu", column, line);
+      if(ferror(f)) {
+        log_error("I/O Error #%d: %s", errno, get_errno_msg());
+        clearerr(f);
+        if (!rb_io_wait_readable(fileno(f))) {
+          rb_sys_fail(fptr->path);
+        }
+        return_status = errno;
+      }
+      break; // true EOF
+    }
+    log_debug("Mark");
+    
+    // In text context?
+    if(context & CTX_TEXT) {
+      log_debug("Mark");
+      if(prev_c == '<' && c == '%') {
+        log_debug("Mark");
+        log_parse("Switch: TEXT -> EVAL <%%");
+        log_debug("Mark");
+        cstr_popc(compiler->buf); // remove '<'
+        log_parse("Push: Text: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+        _compile_push(compiler, context);
+        context = CTX_EVAL;
+      }
+      else {
+        log_debug("Mark");
+        if(c == '\'') { // Escape
+          log_debug("Mark");
+          cstr_appendc(compiler->buf, '\\');
+        }
+        log_debug("Mark");
+        cstr_appendc(compiler->buf, c);
+        log_debug("Mark");
+      }
+    }
+    // In eval context?
+    else if(context & CTX_EVAL) {
+      if(prev_c == '%' && c == '>') {
+        log_parse("Switch: EVAL -> TEXT %%>");
+        cstr_popc(compiler->buf); // remove '%'
+        //#ifdef DEBUG
+          if(context & CTX_COMMENT) {
+            log_parse("Push: Comment: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+          } else if(context & CTX_PRINT) {
+            log_parse("Push: Lua-print: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+          } else {
+            log_parse("Push: Lua-eval: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
+          }
+        //#endif
+        _compile_push(compiler, context);
+        context = CTX_TEXT;
+      }
+      else if(prev_prev_c == '<' && prev_c == '%') {
+        // the first char after "<%"
+        if(c == '#') {
+          context |= CTX_COMMENT;
+          log_parse("Switch: EVAL -> COMMENT <%%#");
+        }
+        else if(c == '=') {
+          context |= CTX_PRINT;
+          log_parse("Switch: EVAL -> PRINT <%%=");
+        } 
+        //else { log_parse(filename, line, column, "EVAL == EVAL"); }
+      }
+      else {
+        cstr_appendc(compiler->buf, c);
+      }
+      //else { log_parse(filename, line, column, "EVAL == EVAL %c %c", prev_prev_c, prev_c); }
+    }
+    //else { log_debug("nomatch %d (%d, %d)", context & CTX_EVAL, context, CTX_EVAL); }
+    log_debug("Mark");
+    if(c == '\n') {
+      line++;
+      column = 0;
+    }
+    
+    prev_prev_c = prev_c;
+    prev_c = c;
+  }
+  
+  cstr_reset(compiler->buf);
+  return compiler->out;
+}
+
+// ------------------------------------------
+// Library init code
 
 void Init_rhp() {
-  mRHP = rb_define_module("RHP");
+  // module RHP
+  RHP = rb_define_module("RHP");
   
-  ID cRString_id = rb_intern("String"); 
-  VALUE cRString = rb_const_get(rb_cObject, cRString_id);
+  // class String mixins
+  VALUE cRString = rb_const_get(rb_cObject, rb_intern("String"));
   rb_define_method(cRString, "xml_safe", RString_xml_safe, 0);
+  
+  // class RHP::Compiler < Object
+  RHP_Compiler = rb_define_class_under(RHP, "Compiler", rb_cObject);
+  rb_define_alloc_func(RHP_Compiler, RHP_Compiler_allocate);
+  rb_define_method(RHP_Compiler, "compile_file", RHP_Compiler_compile_file, 1);
+  
+  // class RHP::CompileError < StandardError
+  RHP_CompileError = rb_define_class_under(RHP, "CompileError", rb_eStandardError);
+  
+  rb_provide("rhp");
 }

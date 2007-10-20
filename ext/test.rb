@@ -9,6 +9,12 @@ else
 end
 
 
+compiler = RHP::Compiler.new
+f = File.open('../index.rhp')
+puts compiler.compile_file(f)
+f.close
+
+
 require 'benchmark'
 class String
   def xml_safe2
