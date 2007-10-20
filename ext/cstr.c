@@ -1,9 +1,9 @@
 #include "cstr.h"
 
-#define DEBUG 1
-#include <stdio.h>
-
+//#define DEBUG 1
+//#include <stdio.h>
 #include "macros.h"
+
 #include <string.h>
 
 /* $Id: cstr.c 7 2007-10-18 04:08:08Z rasmus $ */

@@ -1,7 +1,5 @@
 #include <ruby.h>
 #include "cstr.h"
-#define DEBUG 1
-#include "macros.h"
 
 typedef struct rhp_compiler {
     cstr *buf;

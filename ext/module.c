@@ -7,6 +7,9 @@
 
 #include "rubyio.h" // OpenFile etc
 
+#define DEBUG 1
+#include "macros.h"
+
 static VALUE RHP;
 static VALUE RHP_Compiler;
 static VALUE RHP_CompileError;
@@ -150,6 +153,7 @@ const char* get_errno_msg() {
 #define CTX_EVAL 2
 #define CTX_COMMENT 4
 #define CTX_PRINT 8
+#define CTX_OUTPUT_STARTED 16
 
 #ifdef DEBUG
 #define log_parse(fmt, ...) fprintf(stdout, "%s %lu:%-2lu  " fmt "\n", filename, line, column, ##__VA_ARGS__)
@@ -180,8 +184,16 @@ static VALUE RHP_Compiler_allocate (VALUE klass) {
   return obj;
 }
 
-static int _compile_push(rhp_compiler_t *compiler, const int context) {
-  int status = 0;
+static int _compile_push(rhp_compiler_t *compiler, const int context, int output_started) {
+  
+  if(compiler->buf->length == 0) {
+    return output_started;
+  }
+  
+  if(!output_started && (context & CTX_PRINT) || (!(context & CTX_EVAL))) {
+    compiler->out = rb_str_buf_cat(compiler->out, "send_headers!\n", 14);
+    output_started = 1;
+  }
   
   if(context & CTX_EVAL) {
     if(context & CTX_COMMENT) {
@@ -212,7 +224,7 @@ static int _compile_push(rhp_compiler_t *compiler, const int context) {
   }
   
   cstr_reset(compiler->buf);
-  return status;
+  return output_started;
 }
 
 static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
@@ -226,6 +238,7 @@ static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
   int prev_prev_c = -1;
   int context = CTX_TEXT;
   int return_status = 0;
+  int output_started = 0;
   size_t line = 1;
   size_t column = 0;
   cstr *buf;
@@ -256,7 +269,6 @@ static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
   log_debug("Entering read-loop");
   while(++column) {
     c  = fgetc(f); // We might want to wrap this in TRAP_BEG .. TRAP_END
-    log_debug("Mark");
     // Handle EOF
     if(c == EOF) {
       log_debug("EOF @ column %lu, line %lu", column, line);
@@ -270,29 +282,21 @@ static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
       }
       break; // true EOF
     }
-    log_debug("Mark");
     
     // In text context?
     if(context & CTX_TEXT) {
-      log_debug("Mark");
       if(prev_c == '<' && c == '%') {
-        log_debug("Mark");
         log_parse("Switch: TEXT -> EVAL <%%");
-        log_debug("Mark");
         cstr_popc(compiler->buf); // remove '<'
         log_parse("Push: Text: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
-        _compile_push(compiler, context);
+        output_started = _compile_push(compiler, context, output_started);
         context = CTX_EVAL;
       }
       else {
-        log_debug("Mark");
         if(c == '\'') { // Escape
-          log_debug("Mark");
           cstr_appendc(compiler->buf, '\\');
         }
-        log_debug("Mark");
         cstr_appendc(compiler->buf, c);
-        log_debug("Mark");
       }
     }
     // In eval context?
@@ -309,7 +313,7 @@ static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
             log_parse("Push: Lua-eval: (%lu) '%s'", compiler->buf->length, compiler->buf->ptr);
           }
         //#endif
-        _compile_push(compiler, context);
+        output_started = _compile_push(compiler, context, output_started);
         context = CTX_TEXT;
       }
       else if(prev_prev_c == '<' && prev_c == '%') {
@@ -330,7 +334,6 @@ static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
       //else { log_parse(filename, line, column, "EVAL == EVAL %c %c", prev_prev_c, prev_c); }
     }
     //else { log_debug("nomatch %d (%d, %d)", context & CTX_EVAL, context, CTX_EVAL); }
-    log_debug("Mark");
     if(c == '\n') {
       line++;
       column = 0;

@@ -14,14 +14,15 @@ f = File.open('../index.rhp')
 puts compiler.compile_file(f)
 f.close
 
-
+exit 0
+puts 'Benchmarking String.xml_safe'
 require 'benchmark'
 class String
   def xml_safe2
     self.gsub(/&/, "&#38;").gsub(/\"/, "&#34;").gsub(/</, "&#60;").gsub(/>/, "&#62;")
   end
 end
-n = 100000
+n = 50000
 s = %q{<table class="header-table">
 <tr class="top-aligned-row">
 <td><strong>Module</strong></td>
@@ -29,7 +30,7 @@ s = %q{<table class="header-table">
 <tr class="top-aligned-row">
 <td><strong>In:</strong></td>
 <td><a href="../files/benchmark_rb.html">benchmark.rb</a>}
-Benchmark.bmbm(5) do |x|
-  x.report("ruby:") { n.times do; s.xml_safe2; end }
-  x.report("C:") { n.times do; s.xml_safe; end }
+Benchmark.bmbm(12) do |x|
+  x.report("Ruby version:") { n.times do; s.xml_safe2; end }
+  x.report("C version:") { n.times do; s.xml_safe; end }
 end
