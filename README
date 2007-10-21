@@ -1,5 +1,25 @@
 RHP - Ruby Hypertext Preprocessor
 
+
 Authors:
   Rasmus Andersson <rasmus@flajm.se>
+
+
+Dependencies:
+  rhp
+  |
+  +- ruby 1.8    <http://www.ruby-lang.org/>
+  |
+  +- gcc or similar c compiler
+  |
+  +- ruby-fcgi   <http://raa.ruby-lang.org/project/fcgi>
+     |
+     +- fcgi headers
+        These can be aquired in several ways. On Debian/Aptitude there is
+        a package suffixed with "-dev" which installs fcgi headers. On Mac OS X/MacPorts
+        there's a package named "fcgi" wich will install the library as well as the headers.
+        These headers may not be needed, depending on if you build ruby-fcgi yourself or
+        installs a prebuilt package.
+  
+  And also a FastCGI-capable web server. (For example Lighttpd and Apache)
 
