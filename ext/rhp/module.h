@@ -10,5 +10,5 @@ typedef struct rhp_compiler {
 const char* get_errno_msg ();
 
 // Library init
-void Init_rhp ();
+void Init_rhp_c ();
 

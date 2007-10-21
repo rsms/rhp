@@ -1,0 +1,4 @@
+MANIFEST
+extconf.rb
+cstr.c
+module.c

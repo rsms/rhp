@@ -1,0 +1,12 @@
+Simple example hosted by lighttpd.
+
+To run, cd to this directory (in which you found this README file) and run:
+
+  lighttpd -Df lighttpd.conf
+
+Then enter http://localhost:8080/ to see it running.
+You may now fiddle around a bit with index.rhp and foo.rhp!
+
+Note: If you do not have *sbin in your path, you may have to specify the 
+      absolute location of lighttpd. Ie /usr/sbin/lighttpd
+

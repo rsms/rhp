@@ -7,7 +7,7 @@
 
 #include "rubyio.h" // OpenFile etc
 
-#define DEBUG 1
+//#define DEBUG 1
 #include "macros.h"
 
 static VALUE RHP;
@@ -350,7 +350,7 @@ static VALUE RHP_Compiler_compile_file(VALUE self, VALUE file) {
 // ------------------------------------------
 // Library init code
 
-void Init_rhp() {
+void Init_rhp_c() {
   // module RHP
   RHP = rb_define_module("RHP");
   
@@ -366,5 +366,5 @@ void Init_rhp() {
   // class RHP::CompileError < StandardError
   RHP_CompileError = rb_define_class_under(RHP, "CompileError", rb_eStandardError);
   
-  rb_provide("rhp");
+  rb_provide("rhp_c");
 }
