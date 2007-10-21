@@ -1,5 +1,25 @@
 #!/usr/bin/env ruby
 require 'rhp'
+require 'test/unit'
+
+class CompilerTest < Test::Unit::TestCase
+  # def setup
+  # end
+
+  # def teardown
+  # end
+
+  def test_xml_safe
+    assert('<>"&'.xml_safe == '&#62;&#60;&#34;&#38;')
+  end
+end
+
+if $0 == __FILE__
+  require 'test/unit/ui/console/testrunner'
+  Test::Unit::UI::Console::TestRunner.run(untitled)
+end
+
+
 
 if '<>"&'.xml_safe == '&#62;&#60;&#34;&#38;' then
   puts 'TEST OK'
@@ -7,6 +27,7 @@ else
   puts 'TEST FAILED!'
   exit 1
 end
+exit 0
 
 
 compiler = RHP::Compiler.new

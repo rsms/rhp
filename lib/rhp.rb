@@ -5,12 +5,7 @@ require 'logger'
 require 'benchmark'
 require 'time'
 require 'stringio'
-require 'rhp'
-
-if $DEBUG
-  require 'profile'
-  $stderr.print "Profiling...\n"
-end
+require 'rhp.so'
 
 =begin
 Jobbigast:
@@ -177,11 +172,12 @@ module RHP
 
   # Handles http transactions
   class FCGIHandler
-    def initialize()
-      $log = Logger.new(STDERR)
-      $log.level = Logger::DEBUG
-      if $log.level == Logger::DEBUG
-        $DEBUG = true
+    def initialize(logger=nil)
+      if logger
+        $log = logger
+      elsif $log == nil
+        $log = Logger.new(STDERR)
+        $log.level = Logger::DEBUG
       end
     end
   
