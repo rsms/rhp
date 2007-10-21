@@ -102,16 +102,20 @@ module RHP
     protected
   
     def _send_headers!
-      @headers.each_pair {|name, value|
-        if value.is_a? Array
-          value.each {|v|
-            @request.out.write "#{name}: #{v}\r\n"
-          }
-        else
-          @request.out.write "#{name}: #{value}\r\n"
-        end
-      }
-      @request.out.write "\r\n\r\n"
+      if @headers.empty?
+        @request.out.write "\r\n\r\n"
+      else
+        @headers.each_pair {|name, value|
+          if value.is_a? Array
+            value.each {|v|
+              @request.out.write "#{name}: #{v}\r\n"
+            }
+          else
+            @request.out.write "#{name}: #{value}\r\n"
+          end
+        }
+        @request.out.write "\r\n"
+      end
       @has_sent_headers = true
     end
   end
