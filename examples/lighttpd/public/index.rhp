@@ -8,7 +8,6 @@ headers['X-mos'] = ['Hej', 'Moset']
 # This comes from lib/my_lib
 bob = MyPerson.new
 bob.name = "Bob"
-MyPerson.persistent_data = MyPerson.persistent_data.to_s + '.'
 
 %><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns='http://www.w3.org/1999/xhtml' xml:lang="en" lang="en">
@@ -19,10 +18,7 @@ MyPerson.persistent_data = MyPerson.persistent_data.to_s + '.'
   <body>
     <h1>RHP test</h1>
     <p>
-      <% print "hello world! #{bob.name}" %>
-    </p>
-    <p>
-      <b>MyPerson.persistent_data</b> = <% p MyPerson.persistent_data %>
+      <% print "hello #{bob.name}!" %>
     </p>
     <p>
       Current time: <%= Time.now %>
